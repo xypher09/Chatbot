@@ -135,6 +135,8 @@ class ChatWidget {
             
             if (this.state.chatHistory.length === 0) {
                 this.renderInitialGreeting();
+            } else {
+                this.restoreMessages();
             }
             
             // Focus input if not locked
@@ -435,7 +437,13 @@ class ChatWidget {
     }
 
     openAdminPanel() {
-        window.open('/admin/', '_blank', 'width=1200,height=800');
+        // Open admin panel in a new window/tab
+        const adminWindow = window.open('/public/admin/', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+        
+        if (!adminWindow) {
+            // Fallback if popup was blocked
+            alert('Please allow popups for this site to open the admin panel, or navigate to /public/admin/ manually.');
+        }
     }
 
     updateInputState() {
@@ -559,11 +567,5 @@ class ChatWidget {
 
 // Initialize chat widget when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    // Load dependencies first
-    Promise.all([
-        import('./mockApi.js'),
-        import('./textUtils.js')
-    ]).then(() => {
-        window.chatWidget = new ChatWidget();
-    });
+    window.chatWidget = new ChatWidget();
 });
