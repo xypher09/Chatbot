@@ -385,6 +385,11 @@ class AdminPanel {
             this.systemStatus.isOnline = !this.systemStatus.isOnline;
             this.systemStatus.lastUpdated = new Date().toISOString();
             this.renderSystemStatus(this.systemStatus);
+            
+            // Update the chatbot's status if it exists in the parent window
+            if (window.opener && window.opener.mockApi) {
+                window.opener.mockApi.setOnlineStatus(this.systemStatus.isOnline);
+            }
         } catch (error) {
             console.error('Failed to toggle chatbot status:', error);
         }
