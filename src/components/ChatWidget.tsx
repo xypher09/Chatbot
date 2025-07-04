@@ -3,11 +3,9 @@ import { MessageCircle, Plus, Send, ThumbsUp, ThumbsDown, X, Settings } from 'lu
 import { ChatState, Message, ApiResponse } from '../types/chat';
 import { mockApi } from '../services/mockApi';
 import { parseAndLinkify } from '../utils/textUtils';
-import AdminPanel from './AdminPanel';
 
 const ChatWidget: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [state, setState] = useState<ChatState>({
     sessionId: null,
@@ -240,15 +238,9 @@ const ChatWidget: React.FC = () => {
     handleSendMessage(suggestion);
   };
 
-  // Admin panel access (hidden feature - triple click on status dot)
-  const [clickCount, setClickCount] = useState(0);
-  const handleStatusDotClick = () => {
-    setClickCount(prev => prev + 1);
-    setTimeout(() => setClickCount(0), 1000);
-    
-    if (clickCount === 2) { // Third click
-      setIsAdminOpen(true);
-    }
+  // Admin panel access (opens in new window)
+  const openAdminPanel = () => {
+    window.open('/admin/', '_blank', 'width=1200,height=800');
   };
 
   return (
@@ -263,14 +255,10 @@ const ChatWidget: React.FC = () => {
       >
         <MessageCircle size={24} />
         <div 
-          className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white transition-colors duration-300 cursor-pointer ${
+          className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white transition-colors duration-300 ${
             isOnline ? 'bg-green-500' : 'bg-red-500'
           }`}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleStatusDotClick();
-          }}
-          title="System status (triple-click for admin)"
+          title="System status"
         />
       </button>
 
@@ -288,7 +276,7 @@ const ChatWidget: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setIsAdminOpen(true)}
+              onClick={openAdminPanel}
               className="p-2 hover:bg-blue-700 rounded-lg transition-colors opacity-50 hover:opacity-100"
               title="Admin Panel"
             >
@@ -441,12 +429,6 @@ const ChatWidget: React.FC = () => {
           </form>
         </div>
       </div>
-
-      {/* Admin Panel */}
-      <AdminPanel 
-        isOpen={isAdminOpen} 
-        onClose={() => setIsAdminOpen(false)} 
-      />
     </>
   );
 };

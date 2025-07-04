@@ -37,8 +37,3 @@ export interface HealthResponse {
 export interface FeedbackResponse {
   message: string;
 }
-
-export interface AuthResponse {
-  message: string;
-  token: string;
-}
