@@ -1,594 +1,569 @@
 /**
- * University AI Assistant Frontend Logic
- * Version 1.0
- *
- * This script handles all client-side functionality for the chat interface,
- * including state management, UI rendering, and API communication.
- *
- * Warning: This code contains traces of humor, puns, and possibly a dad joke or two.
- * Proceed with a smile!
+ * University AI Assistant Chat Widget - Vanilla JavaScript
+ * Converted from React to pure JavaScript with DOM manipulation
  */
-document.addEventListener("DOMContentLoaded", () => {
-  // --- CONFIGURATION & CONSTANTS ---
-  const CONFIG = {
-    api: {
-      // In a real app, these would be your actual API endpoints
-      health: "/api/health",
-      chat: "/api/chat",
-      feedback: "/api/feedback",
-    },
-    selectors: {
-      widgetButton: "#chat-widget-button",
-      statusDot: "#status-dot",
-      chatWindow: "#chat-window",
-      messageList: "#message-list",
-      chatForm: "#chat-form",
-      chatInput: "#chat-input",
-      sendButton: "#send-btn",
-      newConversationBtn: "#new-conversation-btn",
-      rateLimitDisplay: "#rate-limit-display",
-      systemMessageArea: "#system-message-area",
-    },
-    css: {
-      open: "open",
-      online: "online",
-      hidden: "hidden",
-      clicked: "clicked",
-      suggestionBtn: "suggestion-btn",
-      feedbackBtn: "feedback-btn",
-      commonQuestions: "common-questions",
-      suggestedQuestions: "suggested-questions",
-    },
-    storageKey: "aiAssistantSession",
-    statusCheckInterval: 30000, // 30 seconds (or one episode of a cat video in internet time)
-  };
 
-  // --- DOM ELEMENTS ---
-  // Caching DOM elements for performance and cleaner access (and to avoid DOM hide-and-seek)
-  const elements = {
-    widgetButton: document.querySelector(CONFIG.selectors.widgetButton),
-    statusDot: document.querySelector(CONFIG.selectors.statusDot),
-    chatWindow: document.querySelector(CONFIG.selectors.chatWindow),
-    messageList: document.querySelector(CONFIG.selectors.messageList),
-    chatForm: document.querySelector(CONFIG.selectors.chatForm),
-    chatInput: document.querySelector(CONFIG.selectors.chatInput),
-    sendButton: document.querySelector(CONFIG.selectors.sendButton),
-    newConversationBtn: document.querySelector(
-      CONFIG.selectors.newConversationBtn
-    ),
-    rateLimitDisplay: document.querySelector(CONFIG.selectors.rateLimitDisplay),
-    systemMessageArea: document.querySelector(
-      CONFIG.selectors.systemMessageArea
-    ),
-  };
-
-  // --- APPLICATION STATE ---
-  // Centralizing the session's state into a single object (because chaos is only fun in parties)
-  let state = {
-    sessionId: null,
-    chatHistory: [], // The "Two-Turn Memory" (because bots have goldfish memory)
-    isWindowOpen: false,
-  };
-
-  // =================================================================================
-  // MOCK API SIMULATION
-  // This object simulates the backend to allow for full frontend testing.
-  // In a real application, this entire object would be replaced with `fetch` calls.
-  // =================================================================================
-  const mockApi = {
-    interactionCounter: 8019,
-    sessionQueryCount: 0,
-    hardLimitCount: 50,
-    isOnline: true,
-
-    async getHealth() {
-      await new Promise((res) => setTimeout(res, 200));
-      return { status: this.isOnline ? "Online" : "Offline" };
-    },
-
-    async getChatResponse(message) {
-      await new Promise((res) => setTimeout(res, 1200));
-      this.interactionCounter++;
-      this.sessionQueryCount++;
-      this.hardLimitCount--;
-
-      if (this.sessionQueryCount % 6 === 0)
-        return this.createErrorResponse(
-          429,
-          "You've made a lot of requests in a short time. Please try again in about 15 minutes."
-        );
-      if (this.hardLimitCount <= 0)
-        return this.createErrorResponse(
-          429,
-          "Usage Limit Reached. You can ask more questions in 2 hours and 45 minutes. (Limit for this 3-hour window resets at 5:00 PM)"
-        );
-      if (message.toLowerCase().includes("break"))
-        return this.createErrorResponse(503);
-
-      const noAnswer = message.toLowerCase().includes("obscure topic");
-
-      return this.createSuccessResponse({
-        answer: noAnswer
-          ? "I'm sorry, I couldn't find an answer to that in my knowledge base. Could you try rephrasing, or would you like to see our [FAQ Page](https://example.com/faq)?"
-          : `This is a response to your query about "${message}". For more details, visit our website at https://example.edu or check out the [admissions page](https://example.edu/admissions).`,
-        interaction_id: this.interactionCounter,
-        suggested_questions: noAnswer
-          ? ["How do I apply?", "What are the tuition fees?"]
-          : [
-              "Tell me about student life.",
-              "What are the main faculties?",
-              "How do I contact support?",
-            ],
-      });
-    },
-
-    async postFeedback(interactionId, feedbackType) {
-      // Fire-and-forget, like sending a message in a bottle (but faster)
-      console.log(
-        `FEEDBACK SENT: interaction_id=${interactionId}, type=${feedbackType}. (Fire-and-forget)`
-      );
-      return { ok: true, status: 200 };
-    },
-
-    createSuccessResponse(data) {
-      return {
-        ok: true,
-        status: 200,
-        headers: this.getHeaders(),
-        json: async () => data,
-      };
-    },
-
-    createErrorResponse(status, detail = "An error occurred.") {
-      return {
-        ok: false,
-        status,
-        headers: this.getHeaders(),
-        json: async () => ({ detail }),
-      };
-    },
-
-    getHeaders() {
-      const headers = new Headers();
-      headers.append("X-Session-Query-Count", this.sessionQueryCount);
-      headers.append("X-Hard-Limit-Count", this.hardLimitCount);
-      return headers;
-    },
-
-    resetSessionCounters() {
-      this.sessionQueryCount = 0;
-    },
-  };
-
-  // --- UI RENDERING & UPDATES ---
-
-  /**
-   * Toggles the chat window's visibility and updates the open state.
-   * Like a magic trick, but with more JavaScript and less rabbits.
-   */
-  const toggleChatWindow = () => {
-    state.isWindowOpen = !state.isWindowOpen;
-    elements.chatWindow.classList.toggle(CONFIG.css.open, state.isWindowOpen);
-
-    if (state.isWindowOpen && !state.sessionId) {
-      renderInitialView();
-    }
-  };
-
-  /**
-   * Renders the initial friendly greeting and a set of common questions.
-   * Because everyone loves a warm welcome (and a little help).
-   */
-  const renderInitialView = () => {
-    const hour = new Date().getHours();
-    const greeting =
-      hour < 12
-        ? "Good morning!"
-        : hour < 18
-        ? "Good afternoon!"
-        : "Good evening!";
-
-    renderMessage("bot", `${greeting} How can I assist you today?`);
-
-    const commonQuestions = [
-      "What are the application deadlines?",
-      "How much is tuition?",
-      "Tell me about campus housing.",
-    ];
-    renderSuggestions(commonQuestions, CONFIG.css.commonQuestions);
-  };
-
-  /**
-   * Creates and appends a new message to the chat list.
-   * @param {'user' | 'bot'} role - The sender of the message.
-   * @param {string} text - The message content.
-   * @param {number | null} interactionId - The ID for feedback controls.
-   *
-   * Fun fact: Each message is hand-crafted by our team of highly trained electrons.
-   */
-  const renderMessage = (role, text, interactionId = null) => {
-    const messageContainer = document.createElement("div");
-    messageContainer.className = `${role}-message-container`;
-
-    const messageBubble = document.createElement("div");
-    messageBubble.className = `message-bubble ${role}-message`;
-    messageBubble.innerHTML = parseAndLinkify(text);
-
-    messageContainer.appendChild(messageBubble);
-
-    if (role === "bot" && interactionId) {
-      const feedbackHTML = createFeedbackControlsHTML(interactionId);
-      messageContainer.insertAdjacentHTML("beforeend", feedbackHTML);
+class ChatWidget {
+    constructor() {
+        this.isOpen = false;
+        this.isOnline = true;
+        this.state = {
+            sessionId: null,
+            chatHistory: [],
+            isLoading: false,
+            rateLimitInfo: null,
+            systemMessage: null,
+            isLocked: false
+        };
+        this.inputValue = '';
+        
+        this.init();
     }
 
-    elements.messageList.appendChild(messageContainer);
-    scrollToBottom();
-    return messageContainer;
-  };
-
-  /**
-   * Renders a list of clickable suggestion buttons.
-   * @param {string[]} suggestions - An array of question strings.
-   * @param {string} typeClass - The CSS class for the container.
-   *
-   * Buttons so tempting, even the bot wants to click them.
-   */
-  const renderSuggestions = (suggestions, typeClass) => {
-    // Clear previous suggestions to prevent duplicates (because two is a crowd)
-    elements.messageList.querySelector(`.${typeClass}`)?.remove();
-
-    const container = document.createElement("div");
-    container.className = typeClass;
-    container.innerHTML = suggestions
-      .map((q) => `<button class="${CONFIG.css.suggestionBtn}">${q}</button>`)
-      .join("");
-
-    elements.messageList.appendChild(container);
-    scrollToBottom();
-  };
-
-  /**
-   * Manages the enabled/disabled state of the user input area and system messages.
-   * @param {'active'|'loading'|'locked'|'offline'} mode - The desired UI state.
-   * @param {string | null} message - An optional message to display.
-   *
-   * Disabling input: because sometimes, even bots need a break.
-   */
-  const setInteractionState = (mode, message = null) => {
-    const isLocked =
-      mode === "locked" || mode === "loading" || mode === "offline";
-    elements.chatInput.disabled = isLocked;
-    elements.sendButton.disabled = isLocked;
-    elements.systemMessageArea.classList.toggle(CONFIG.css.hidden, !message);
-    elements.systemMessageArea.innerHTML = message ? `<p>${message}</p>` : "";
-
-    switch (mode) {
-      case "active":
-        elements.chatInput.placeholder = "Type your message...";
-        elements.sendButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>`;
-        break;
-      case "loading":
-        elements.chatInput.placeholder = "Waiting for response...";
-        elements.sendButton.innerHTML = `<div class="loading-dots-small"><span></span><span></span><span></span></div>`; // A smaller loader for the button
-        break;
-      case "locked":
-      case "offline":
-        elements.chatInput.placeholder = "Input disabled";
-        break;
-    }
-  };
-
-  /**
-   * Updates the UI based on rate limit headers from the API response.
-   * @param {Headers} headers - The headers object from the fetch response.
-   *
-   * Because limits are like cookies: you always want more.
-   */
-  const updateHeaderBasedUI = (headers) => {
-    // Handle 3-hour limit display
-    const hardLimitCount = headers.get("X-Hard-Limit-Count");
-    if (hardLimitCount && parseInt(hardLimitCount) <= 10) {
-      elements.rateLimitDisplay.textContent = `Queries left: ${hardLimitCount}. Resets at 5:00 PM.`;
-    } else {
-      elements.rateLimitDisplay.textContent = "";
+    init() {
+        this.loadSavedState();
+        this.createWidget();
+        this.bindEvents();
+        this.checkHealth();
+        
+        // Check API health periodically
+        setInterval(() => this.checkHealth(), 30000);
     }
 
-    // Handle session limit (10 queries)
-    const sessionQueryCount = headers.get("X-Session-Query-Count");
-    if (sessionQueryCount && parseInt(sessionQueryCount) >= 10) {
-      const message = `You've reached the query limit for this conversation. <button class="${CONFIG.css.suggestionBtn}" data-action="reset">Start a New Conversation</button>`;
-      setInteractionState("locked", message);
-    }
-  };
+    createWidget() {
+        // Create chat widget button
+        const widgetButton = document.createElement('button');
+        widgetButton.id = 'chat-widget-button';
+        widgetButton.className = 'chat-widget-button';
+        widgetButton.innerHTML = `
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <div id="status-dot" class="status-dot ${this.isOnline ? 'online' : ''}"></div>
+        `;
 
-  // --- STATE & CONTEXT MANAGEMENT ---
+        // Create chat window
+        const chatWindow = document.createElement('div');
+        chatWindow.id = 'chat-window';
+        chatWindow.className = 'chat-window';
+        chatWindow.innerHTML = `
+            <!-- Header -->
+            <div class="chat-header">
+                <div class="header-info">
+                    <h3>AI Assistant</h3>
+                    <div id="rate-limit-display" class="rate-limit-info"></div>
+                </div>
+                <div class="header-actions">
+                    <button id="admin-panel-btn" class="icon-button" title="Admin Panel">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
+                    </button>
+                    <button id="new-conversation-btn" class="icon-button" title="New Conversation">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <button id="close-chat-btn" class="icon-button" title="Close chat">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
 
-  /**
-   * Persists the current session state (ID and history) to sessionStorage.
-   * Because even bots need to remember things sometimes.
-   */
-  const saveState = () => {
-    if (state.sessionId) {
-      sessionStorage.setItem(CONFIG.storageKey, JSON.stringify(state));
-    }
-  };
+            <!-- Messages -->
+            <div id="message-list" class="message-list">
+                <!-- Messages will be rendered here -->
+            </div>
 
-  /**
-   * Loads session state from sessionStorage on page load.
-   * Like waking up from a nap and remembering your dreams.
-   */
-  const loadState = () => {
-    const savedState = sessionStorage.getItem(CONFIG.storageKey);
-    if (savedState) {
-      const loaded = JSON.parse(savedState);
-      state.sessionId = loaded.sessionId;
-      state.chatHistory = loaded.chatHistory;
+            <!-- System Message -->
+            <div id="system-message-area" class="system-message-area hidden">
+                <!-- System messages will appear here -->
+            </div>
 
-      // Rehydrate the UI from history
-      elements.messageList.innerHTML = "";
-      state.chatHistory.forEach((msg) => renderMessage(msg.role, msg.content));
-      console.log("Session rehydrated from sessionStorage.");
-    }
-  };
+            <!-- Input Area -->
+            <div class="chat-input-area">
+                <form id="chat-form">
+                    <input type="text" id="chat-input" placeholder="Type your message..." autocomplete="off" required>
+                    <button type="submit" id="send-btn" class="icon-button send-button" title="Send">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        `;
 
-  /**
-   * Adds a message to the history and trims it to the "Two-Turn Memory" limit (4 messages).
-   * @param {'user' | 'bot'} role - The sender.
-   * @param {string} content - The message text.
-   *
-   * Memory is precious. So is RAM.
-   */
-  const addToHistory = (role, content) => {
-    state.chatHistory.push({ role, content });
-    if (state.chatHistory.length > 4) {
-      state.chatHistory = state.chatHistory.slice(-4);
-    }
-  };
-
-  /**
-   * Resets the entire conversation state and UI.
-   *
-   * Like a fresh start, but with less existential dread.
-   */
-  const resetSession = () => {
-    if (!confirm("Are you sure you want to start a new conversation?")) return;
-
-    // Reset state
-    state.sessionId = null;
-    state.chatHistory = [];
-    mockApi.resetSessionCounters(); // For mock API only
-    sessionStorage.removeItem(CONFIG.storageKey);
-
-    // Reset UI
-    elements.messageList.innerHTML = "";
-    elements.rateLimitDisplay.textContent = "";
-    setInteractionState("active");
-    renderInitialView();
-  };
-
-  // --- CORE LOGIC & API HANDLING ---
-
-  /**
-   * Main handler for when the user submits the chat form.
-   * @param {Event} e - The form submission event.
-   *
-   * This is where the magic happens. Or at least, where the user hopes it does.
-   */
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    const userMessage = elements.chatInput.value.trim();
-    if (!userMessage) return;
-
-    // Clear any leftover suggestions
-    elements.messageList
-      .querySelector(
-        `.${CONFIG.css.suggestedQuestions}, .${CONFIG.css.commonQuestions}`
-      )
-      ?.remove();
-
-    renderMessage("user", userMessage);
-    elements.chatForm.reset();
-
-    addToHistory("user", userMessage);
-
-    if (!state.sessionId) {
-      state.sessionId = generateUUIDv4();
+        document.body.appendChild(widgetButton);
+        document.body.appendChild(chatWindow);
     }
 
-    // Show loading state
-    const loadingIndicator = renderMessage(
-      "bot",
-      '<div class="loading-dots"><span></span><span></span><span></span></div>'
-    );
-    setInteractionState("loading");
+    bindEvents() {
+        // Widget button click
+        document.getElementById('chat-widget-button').addEventListener('click', () => this.toggleChat());
+        
+        // Header buttons
+        document.getElementById('admin-panel-btn').addEventListener('click', () => this.openAdminPanel());
+        document.getElementById('new-conversation-btn').addEventListener('click', () => this.resetConversation());
+        document.getElementById('close-chat-btn').addEventListener('click', () => this.toggleChat());
+        
+        // Chat form
+        document.getElementById('chat-form').addEventListener('submit', (e) => this.handleSendMessage(e));
+        
+        // Input field
+        document.getElementById('chat-input').addEventListener('input', (e) => {
+            this.inputValue = e.target.value;
+        });
 
-    try {
-      const response = await mockApi.getChatResponse(
-        userMessage,
-        state.sessionId,
-        state.chatHistory
-      );
-      handleApiResponse(response);
-    } catch (error) {
-      console.error("Network or unexpected error:", error);
-      renderMessage(
-        "bot",
-        "I seem to be having some technical trouble right now. Please try your question again in a few moments."
-      );
-    } finally {
-      loadingIndicator.remove();
-      // The interaction state will be set by handleApiResponse or the error handler.
-      // If it wasn't a locking error, set it back to active.
-      if (!elements.chatInput.disabled) {
-        setInteractionState("active");
-      }
-    }
-  };
-
-  /**
-   * Processes the response from the API, handling success, errors, and rate limits.
-   * @param {Response} response - The fetch-like response from the mock API.
-   *
-   * If you can read this, congrats! You survived the callback jungle.
-   */
-  const handleApiResponse = async (response) => {
-    if (!response.ok) {
-      const errorData = await response.json();
-      if (response.status === 429) {
-        setInteractionState("locked", errorData.detail);
-      } else {
-        // Generic server error (5xx)
-        renderMessage(
-          "bot",
-          "I seem to be having some technical trouble right now. Please try your question again in a few moments."
-        );
-        setInteractionState("active"); // Allow user to try again
-      }
-      return;
+        // Message list for suggestions and feedback
+        document.getElementById('message-list').addEventListener('click', (e) => this.handleMessageClick(e));
     }
 
-    const data = await response.json();
-    renderMessage("bot", data.answer, data.interaction_id);
-    addToHistory("bot", data.answer);
-
-    if (data.suggested_questions?.length) {
-      renderSuggestions(
-        data.suggested_questions,
-        CONFIG.css.suggestedQuestions
-      );
+    toggleChat() {
+        this.isOpen = !this.isOpen;
+        const chatWindow = document.getElementById('chat-window');
+        const widgetButton = document.getElementById('chat-widget-button');
+        
+        if (this.isOpen) {
+            chatWindow.classList.add('open');
+            widgetButton.style.transform = 'scale(0.95)';
+            
+            if (this.state.chatHistory.length === 0) {
+                this.renderInitialGreeting();
+            }
+            
+            // Focus input if not locked
+            if (!this.state.isLocked) {
+                setTimeout(() => {
+                    document.getElementById('chat-input').focus();
+                }, 100);
+            }
+        } else {
+            chatWindow.classList.remove('open');
+            widgetButton.style.transform = 'scale(1)';
+        }
     }
 
-    setInteractionState("active"); // Re-enable input after successful response
-    updateHeaderBasedUI(response.headers);
-    saveState();
-  };
+    renderInitialGreeting() {
+        const hour = new Date().getHours();
+        const greeting = hour < 12 ? 'Good morning!' : hour < 18 ? 'Good afternoon!' : 'Good evening!';
+        
+        const welcomeMessage = {
+            id: Date.now().toString(),
+            role: 'bot',
+            content: `${greeting} I'm your university AI assistant. How can I help you today?`,
+            timestamp: new Date(),
+            suggestions: [
+                "What are the application deadlines?",
+                "How much is tuition?",
+                "Tell me about campus housing."
+            ]
+        };
 
-  /**
-   * Checks the API health endpoint and updates the UI accordingly.
-   *
-   * Because even bots need a checkup now and then.
-   */
-  const checkApiStatus = async () => {
-    try {
-      const data = await mockApi.getHealth();
-      if (data.status !== "Online") throw new Error("Offline");
-
-      elements.statusDot.classList.add(CONFIG.css.online);
-      // If the chat was offline, but is now online, re-enable it.
-      if (elements.chatInput.dataset.offline) {
-        delete elements.chatInput.dataset.offline;
-        setInteractionState("active");
-      }
-    } catch (error) {
-      elements.statusDot.classList.remove(CONFIG.css.online);
-      if (state.isWindowOpen) {
-        setInteractionState(
-          "offline",
-          "The assistant is currently unavailable. We're working on it. Please try again later."
-        );
-        elements.chatInput.dataset.offline = "true";
-      }
-    }
-  };
-
-  /**
-   * Handles clicks on dynamically added elements within the message list.
-   * @param {Event} e The click event.
-   *
-   * Event delegation: because who wants to add a million event listeners?
-   */
-  const handleMessageListClick = (e) => {
-    const target = e.target;
-
-    // Handle suggestion button clicks
-    const suggestionBtn = target.closest(`.${CONFIG.css.suggestionBtn}`);
-    if (suggestionBtn) {
-      // Handle special case for reset button
-      if (suggestionBtn.dataset.action === "reset") {
-        resetSession();
-        return;
-      }
-      elements.chatInput.value = suggestionBtn.textContent;
-      elements.chatForm.requestSubmit(); // Modern way to submit a form
-      return;
+        this.addToHistory(welcomeMessage);
+        this.renderMessage(welcomeMessage);
     }
 
-    // Handle feedback button clicks
-    const feedbackBtn = target.closest(`.${CONFIG.css.feedbackBtn}`);
-    if (feedbackBtn && !feedbackBtn.disabled) {
-      const parent = feedbackBtn.parentElement;
-
-      feedbackBtn.classList.add(CONFIG.css.clicked);
-      Array.from(parent.children).forEach((btn) => (btn.disabled = true));
-
-      mockApi.postFeedback(
-        feedbackBtn.dataset.interactionId,
-        feedbackBtn.dataset.feedbackType
-      );
+    addToHistory(message) {
+        this.state.chatHistory.push(message);
+        
+        // Keep only last 4 messages (2 turns)
+        if (this.state.chatHistory.length > 4) {
+            this.state.chatHistory = this.state.chatHistory.slice(-4);
+        }
+        
+        this.saveState();
     }
-  };
 
-  // --- UTILITY FUNCTIONS ---
+    renderMessage(message) {
+        const messageList = document.getElementById('message-list');
+        const messageContainer = document.createElement('div');
+        messageContainer.className = `message-container ${message.role}`;
+        
+        const messageBubble = document.createElement('div');
+        messageBubble.className = `message-bubble ${message.role}-message`;
+        messageBubble.innerHTML = window.parseAndLinkify(message.content);
+        
+        messageContainer.appendChild(messageBubble);
+        
+        // Add feedback buttons for bot messages
+        if (message.role === 'bot' && message.interactionId) {
+            const feedbackContainer = document.createElement('div');
+            feedbackContainer.className = 'feedback-controls';
+            feedbackContainer.innerHTML = `
+                <button class="feedback-btn ${message.feedbackGiven === 'like' ? 'clicked' : ''}" 
+                        data-interaction-id="${message.interactionId}" 
+                        data-feedback-type="like"
+                        ${message.feedbackGiven ? 'disabled' : ''}
+                        title="Like this response">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                    </svg>
+                </button>
+                <button class="feedback-btn ${message.feedbackGiven === 'dislike' ? 'clicked' : ''}" 
+                        data-interaction-id="${message.interactionId}" 
+                        data-feedback-type="dislike"
+                        ${message.feedbackGiven ? 'disabled' : ''}
+                        title="Dislike this response">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm-3-13h3v7H7V2z"></path>
+                    </svg>
+                </button>
+            `;
+            messageContainer.appendChild(feedbackContainer);
+        }
+        
+        // Add suggestions
+        if (message.suggestions && message.suggestions.length > 0) {
+            const suggestionsContainer = document.createElement('div');
+            suggestionsContainer.className = 'suggestions-container';
+            
+            message.suggestions.forEach(suggestion => {
+                const suggestionBtn = document.createElement('button');
+                suggestionBtn.className = 'suggestion-btn';
+                suggestionBtn.textContent = suggestion;
+                suggestionBtn.disabled = this.state.isLoading || this.state.isLocked;
+                suggestionsContainer.appendChild(suggestionBtn);
+            });
+            
+            messageContainer.appendChild(suggestionsContainer);
+        }
+        
+        messageList.appendChild(messageContainer);
+        this.scrollToBottom();
+    }
 
-  /** Scrolls the message list to the most recent message. Because nobody likes spoilers at the top. */
-  const scrollToBottom = () => {
-    elements.messageList.scrollTop = elements.messageList.scrollHeight;
-  };
+    renderLoadingMessage() {
+        const messageList = document.getElementById('message-list');
+        const loadingContainer = document.createElement('div');
+        loadingContainer.id = 'loading-message';
+        loadingContainer.className = 'message-container bot';
+        
+        const loadingBubble = document.createElement('div');
+        loadingBubble.className = 'message-bubble bot-message';
+        loadingBubble.innerHTML = `
+            <div class="loading-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        `;
+        
+        loadingContainer.appendChild(loadingBubble);
+        messageList.appendChild(loadingContainer);
+        this.scrollToBottom();
+        
+        return loadingContainer;
+    }
 
-  /** Generates a Version 4 UUID. Because every session deserves a unique name. */
-  const generateUUIDv4 = () => crypto.randomUUID();
+    removeLoadingMessage() {
+        const loadingMessage = document.getElementById('loading-message');
+        if (loadingMessage) {
+            loadingMessage.remove();
+        }
+    }
 
-  /**
-   * Parses a string for Markdown links and raw URLs, converting them to HTML <a> tags.
-   * @param {string} text - The text to parse.
-   * @returns {string} The text with HTML links.
-   *
-   * Now with 100% more clickable goodness!
-   */
-  const parseAndLinkify = (text) => {
-    const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s]+)\)/g;
-    const rawUrlRegex = /(?<!href=")(https?:\/\/[^\s]+)/g; // Avoids linking already linked URLs
-    return text
-      .replace(
-        markdownLinkRegex,
-        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
-      )
-      .replace(
-        rawUrlRegex,
-        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-      );
-  };
+    async handleSendMessage(e, messageText = null) {
+        e?.preventDefault();
+        
+        const messageToSend = messageText || this.inputValue.trim();
+        if (!messageToSend || this.state.isLoading || this.state.isLocked) return;
 
-  /**
-   * Returns the HTML string for the feedback controls.
-   * @param {number} interactionId - The ID to tag the buttons with.
-   * @returns {string} The HTML string for the controls.
-   *
-   * Like/dislike: because even bots crave validation.
-   */
-  const createFeedbackControlsHTML = (interactionId) => `
-        <div class="feedback-controls">
-            <button class="${CONFIG.css.feedbackBtn}" title="Like" data-interaction-id="${interactionId}" data-feedback-type="like">
-                <svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>
-            </button>
-            <button class="${CONFIG.css.feedbackBtn}" title="Dislike" data-interaction-id="${interactionId}" data-feedback-type="dislike">
-                <svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm-3-13h3v7H7V2z"></path></svg>
-            </button>
-        </div>
-    `;
+        // Clear input and reset value
+        const chatInput = document.getElementById('chat-input');
+        chatInput.value = '';
+        this.inputValue = '';
 
-  // --- EVENT LISTENERS & INITIALIZATION ---
-  elements.widgetButton.addEventListener("click", toggleChatWindow);
-  elements.chatForm.addEventListener("submit", handleSendMessage);
-  elements.newConversationBtn.addEventListener("click", resetSession);
-  elements.messageList.addEventListener("click", handleMessageListClick); // Event Delegation
+        // Add user message
+        const userMessage = {
+            id: Date.now().toString(),
+            role: 'user',
+            content: messageToSend,
+            timestamp: new Date()
+        };
+        
+        this.addToHistory(userMessage);
+        this.renderMessage(userMessage);
 
-  // --- Kick things off ---
-  const initialize = () => {
-    loadState();
-    checkApiStatus();
-    setInterval(checkApiStatus, CONFIG.statusCheckInterval);
-  };
+        // Generate session ID if needed
+        if (!this.state.sessionId) {
+            this.state.sessionId = crypto.randomUUID();
+        }
 
-  initialize();
+        // Set loading state
+        this.state.isLoading = true;
+        this.updateInputState();
+        const loadingMessage = this.renderLoadingMessage();
+
+        try {
+            const response = await window.mockApi.getChatResponse(messageToSend, this.state.sessionId, this.state.chatHistory);
+            await this.handleApiResponse(response);
+        } catch (error) {
+            console.error('Chat error:', error);
+            const errorMessage = {
+                id: Date.now().toString(),
+                role: 'bot',
+                content: "I'm having some technical difficulties right now. Please try again in a few moments.",
+                timestamp: new Date()
+            };
+            this.addToHistory(errorMessage);
+            this.renderMessage(errorMessage);
+        } finally {
+            this.removeLoadingMessage();
+            this.state.isLoading = false;
+            this.updateInputState();
+        }
+    }
+
+    async handleApiResponse(response) {
+        if (!response.ok) {
+            const errorData = await response.json();
+            if (response.status === 429) {
+                this.state.isLocked = true;
+                this.state.systemMessage = errorData.detail;
+                this.updateSystemMessage();
+            } else {
+                const errorMessage = {
+                    id: Date.now().toString(),
+                    role: 'bot',
+                    content: "I'm having some technical difficulties right now. Please try again in a few moments.",
+                    timestamp: new Date()
+                };
+                this.addToHistory(errorMessage);
+                this.renderMessage(errorMessage);
+            }
+            return;
+        }
+
+        const data = await response.json();
+        const botMessage = {
+            id: Date.now().toString(),
+            role: 'bot',
+            content: data.answer,
+            timestamp: new Date(),
+            interactionId: data.interaction_id,
+            suggestions: data.suggested_questions
+        };
+        
+        this.addToHistory(botMessage);
+        this.renderMessage(botMessage);
+
+        // Update rate limit info
+        const hardLimitCount = response.headers.get('X-Hard-Limit-Count');
+        const sessionQueryCount = response.headers.get('X-Session-Query-Count');
+
+        if (hardLimitCount && parseInt(hardLimitCount) <= 10) {
+            this.state.rateLimitInfo = `${hardLimitCount} queries remaining. Resets at 5:00 PM.`;
+            this.updateRateLimitDisplay();
+        }
+
+        if (sessionQueryCount && parseInt(sessionQueryCount) >= 10) {
+            this.state.isLocked = true;
+            this.state.systemMessage = "You've reached the query limit for this conversation.";
+            this.updateSystemMessage();
+        }
+    }
+
+    handleMessageClick(e) {
+        // Handle suggestion clicks
+        if (e.target.classList.contains('suggestion-btn')) {
+            const suggestion = e.target.textContent;
+            this.handleSendMessage(null, suggestion);
+            return;
+        }
+
+        // Handle feedback clicks
+        if (e.target.closest('.feedback-btn')) {
+            const btn = e.target.closest('.feedback-btn');
+            if (btn.disabled) return;
+            
+            const interactionId = parseInt(btn.dataset.interactionId);
+            const feedbackType = btn.dataset.feedbackType;
+            
+            this.handleFeedback(interactionId, feedbackType, btn);
+        }
+    }
+
+    async handleFeedback(interactionId, type, buttonElement) {
+        try {
+            await window.mockApi.postFeedback(interactionId, type);
+            
+            // Update UI
+            buttonElement.classList.add('clicked');
+            const feedbackContainer = buttonElement.parentElement;
+            const allButtons = feedbackContainer.querySelectorAll('.feedback-btn');
+            allButtons.forEach(btn => btn.disabled = true);
+            
+            // Update message in history
+            const messageIndex = this.state.chatHistory.findIndex(msg => msg.interactionId === interactionId);
+            if (messageIndex !== -1) {
+                this.state.chatHistory[messageIndex].feedbackGiven = type;
+                this.saveState();
+            }
+        } catch (error) {
+            console.error('Feedback error:', error);
+        }
+    }
+
+    resetConversation() {
+        if (!confirm('Are you sure you want to start a new conversation?')) return;
+        
+        this.state = {
+            sessionId: null,
+            chatHistory: [],
+            isLoading: false,
+            rateLimitInfo: null,
+            systemMessage: null,
+            isLocked: false
+        };
+        
+        sessionStorage.removeItem('aiAssistantSession');
+        window.mockApi.resetSessionCounters();
+        
+        // Clear UI
+        document.getElementById('message-list').innerHTML = '';
+        this.updateRateLimitDisplay();
+        this.updateSystemMessage();
+        this.updateInputState();
+        
+        this.renderInitialGreeting();
+    }
+
+    openAdminPanel() {
+        window.open('/admin/', '_blank', 'width=1200,height=800');
+    }
+
+    updateInputState() {
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        
+        const isDisabled = !this.isOnline || this.state.isLocked || this.state.isLoading;
+        
+        chatInput.disabled = isDisabled;
+        sendBtn.disabled = isDisabled;
+        
+        if (!this.isOnline) {
+            chatInput.placeholder = "Assistant offline";
+        } else if (this.state.isLocked) {
+            chatInput.placeholder = "Input disabled";
+        } else if (this.state.isLoading) {
+            chatInput.placeholder = "Waiting for response...";
+            sendBtn.innerHTML = `
+                <div class="loading-spinner"></div>
+            `;
+        } else {
+            chatInput.placeholder = "Type your message...";
+            sendBtn.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            `;
+        }
+    }
+
+    updateRateLimitDisplay() {
+        const display = document.getElementById('rate-limit-display');
+        display.textContent = this.state.rateLimitInfo || '';
+    }
+
+    updateSystemMessage() {
+        const area = document.getElementById('system-message-area');
+        
+        if (this.state.systemMessage) {
+            area.innerHTML = `
+                <p>${this.state.systemMessage}</p>
+                ${this.state.isLocked ? '<button class="suggestion-btn" onclick="chatWidget.resetConversation()">Start New Conversation</button>' : ''}
+            `;
+            area.classList.remove('hidden');
+        } else {
+            area.classList.add('hidden');
+        }
+    }
+
+    async checkHealth() {
+        try {
+            const response = await window.mockApi.getHealth();
+            const wasOnline = this.isOnline;
+            this.isOnline = response.status === 'online';
+            
+            const statusDot = document.getElementById('status-dot');
+            if (this.isOnline) {
+                statusDot.classList.add('online');
+                if (!wasOnline) {
+                    // Re-enable if was offline
+                    this.state.systemMessage = null;
+                    this.updateSystemMessage();
+                }
+            } else {
+                statusDot.classList.remove('online');
+                if (this.isOpen) {
+                    this.state.systemMessage = response.maintenance_message || 'The assistant is currently unavailable. We\'re working on it. Please try again later.';
+                    this.updateSystemMessage();
+                }
+            }
+            
+            this.updateInputState();
+        } catch (error) {
+            this.isOnline = false;
+            document.getElementById('status-dot').classList.remove('online');
+            if (this.isOpen) {
+                this.state.systemMessage = 'The assistant is currently unavailable. We\'re working on it. Please try again later.';
+                this.updateSystemMessage();
+            }
+            this.updateInputState();
+        }
+    }
+
+    scrollToBottom() {
+        const messageList = document.getElementById('message-list');
+        messageList.scrollTop = messageList.scrollHeight;
+    }
+
+    saveState() {
+        if (this.state.sessionId) {
+            sessionStorage.setItem('aiAssistantSession', JSON.stringify({
+                sessionId: this.state.sessionId,
+                chatHistory: this.state.chatHistory
+            }));
+        }
+    }
+
+    loadSavedState() {
+        const savedState = sessionStorage.getItem('aiAssistantSession');
+        if (savedState) {
+            try {
+                const parsed = JSON.parse(savedState);
+                this.state.sessionId = parsed.sessionId;
+                this.state.chatHistory = parsed.chatHistory || [];
+            } catch (error) {
+                console.error('Failed to load saved state:', error);
+            }
+        }
+    }
+
+    restoreMessages() {
+        if (this.state.chatHistory.length > 0) {
+            document.getElementById('message-list').innerHTML = '';
+            this.state.chatHistory.forEach(message => {
+                this.renderMessage(message);
+            });
+        }
+    }
+}
+
+// Initialize chat widget when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    // Load dependencies first
+    Promise.all([
+        import('./mockApi.js'),
+        import('./textUtils.js')
+    ]).then(() => {
+        window.chatWidget = new ChatWidget();
+    });
 });
